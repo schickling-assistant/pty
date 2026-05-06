@@ -1,5 +1,7 @@
 import { spawn, execFileSync } from "node:child_process";
+import * as crypto from "node:crypto";
 import * as fs from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
 import * as tty from "node:tty";
 import { fileURLToPath } from "node:url";
@@ -10,6 +12,51 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 /** Allow overriding the server module path (used by the bundled supervisor). */
 let _serverModulePath: string | null = null;
 export function setServerModulePath(p: string): void { _serverModulePath = p; }
+
+/** Resolves the server module path, materialising the embedded source into
+ *  tmpdir when the sibling server.js is unreadable — happens when consumers
+ *  bundle this package into a single binary (e.g. `bun build --compile`
+ *  exposes import.meta.url as `bunfs:`, paths the spawned node child cannot
+ *  read). setServerModulePath() still takes precedence when set. */
+function resolveServerModule(): string {
+  if (_serverModulePath) return _serverModulePath;
+  const sibling = path.join(__dirname, "server.js");
+  try {
+    if (fs.statSync(sibling).isFile()) return sibling;
+  } catch {}
+  return materialiseEmbeddedServer();
+}
+
+function materialiseEmbeddedServer(): string {
+  const sourcePath = path.join(__dirname, "server-source.txt");
+  let source: string;
+  try {
+    source = fs.readFileSync(sourcePath, "utf-8");
+  } catch (err) {
+    throw new Error(
+      `@myobie/pty: cannot locate server module — neither ${path.join(__dirname, "server.js")} nor the embedded fallback at ${sourcePath} is readable.`,
+      { cause: err as Error },
+    );
+  }
+  const hash = crypto.createHash("sha256").update(source).digest("hex").slice(0, 16);
+  // File must be named server.js — see entry-point check in src/server.ts.
+  const dir = path.join(os.tmpdir(), `myobie-pty-server-${hash}`);
+  const target = path.join(dir, "server.js");
+  try {
+    const stat = fs.statSync(target);
+    if (stat.isFile() && stat.size === Buffer.byteLength(source)) return target;
+  } catch {}
+  fs.mkdirSync(dir, { recursive: true });
+  const tmp = `${target}.${process.pid}.${Date.now()}.tmp`;
+  fs.writeFileSync(tmp, source);
+  try {
+    fs.renameSync(tmp, target);
+  } catch (err) {
+    try { fs.unlinkSync(tmp); } catch {}
+    if (!fs.existsSync(target)) throw err;
+  }
+  return target;
+}
 
 export interface SpawnDaemonOptions {
   name: string;
@@ -65,7 +112,7 @@ export async function spawnDaemon(options: SpawnDaemonOptions): Promise<void> {
   const rows = options.rows ?? stdout.rows ?? 24;
   const cols = options.cols ?? stdout.columns ?? 80;
 
-  const serverModule = _serverModulePath ?? path.join(__dirname, "server.js");
+  const serverModule = resolveServerModule();
   const config = JSON.stringify({
     name: options.name,
     command: options.command,
