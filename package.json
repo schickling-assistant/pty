@@ -59,7 +59,7 @@
     "build": "tsc -p tsconfig.build.json && node scripts/embed-server-source.js",
     "prepublishOnly": "npm run build",
     "postinstall": "node scripts/postinstall.js",
-    "prepare": "git config core.hooksPath githooks 2>/dev/null || true; sh scripts/update-nix-hash.sh 2>/dev/null || true",
+    "prepare": "npm run build",
     "install-completions": "sh scripts/install-completions.sh",
     "typecheck": "tsc",
     "test": "vitest run",
