@@ -36,44 +36,100 @@ describe("process liveness under restricted seats", () => {
     expect(isProcessAlive(12345)).toBe(true);
   });
 
-  it("does not socket-probe a permission-denied fleet and returns name order", async () => {
-    if (process.platform === "win32") return;
-    const root = makeRoot();
-    const names = Array.from({ length: 80 }, (_, i) => `seat-${String(79 - i).padStart(3, "0")}`);
-    for (const name of names) {
-      fs.writeFileSync(path.join(root, `${name}.sock`), "");
-      fs.writeFileSync(path.join(root, `${name}.pid`), "12345");
-    }
-    vi.spyOn(process, "kill").mockImplementation(() => {
-      throw errno("EPERM");
-    });
-    const socketProbe = vi.fn(async () => false);
+  it.each([75, 100, 500])(
+    "does not socket-probe a %i-seat permission-denied fleet and returns name order",
+    async (fleetSize) => {
+      if (process.platform === "win32") return;
+      const root = makeRoot();
+      const names = Array.from(
+        { length: fleetSize },
+        (_, i) => `seat-${String(fleetSize - 1 - i).padStart(3, "0")}`,
+      );
+      for (const name of names) {
+        fs.writeFileSync(path.join(root, `${name}.sock`), "");
+        fs.writeFileSync(path.join(root, `${name}.pid`), "12345");
+      }
+      vi.spyOn(process, "kill").mockImplementation(() => {
+        throw errno("EPERM");
+      });
+      const socketProbe = vi.fn(async () => false);
 
-    const sessions = await listSessions({ socketProbe, socketProbeBudgetMs: 20 });
+      const sessions = await listSessions({ socketProbe, socketProbeBudgetMs: 20 });
 
-    expect(socketProbe).not.toHaveBeenCalled();
-    expect(sessions.map((session) => session.name)).toEqual([...names].sort());
-    expect(sessions.every((session) => session.status === "running")).toBe(true);
-  });
+      expect(socketProbe).not.toHaveBeenCalled();
+      expect(sessions.map((session) => session.name)).toEqual([...names].sort());
+      expect(sessions.every((session) => session.status === "running")).toBe(true);
+    },
+  );
+
+  it.each([0, 75, 100, 500])(
+    "lists a %i-seat live-pid fleet without using the fallback",
+    async (fleetSize) => {
+      const root = makeRoot();
+      const names = Array.from(
+        { length: fleetSize },
+        (_, i) => `live-${String(fleetSize - 1 - i).padStart(3, "0")}`,
+      );
+      for (const name of names) {
+        fs.writeFileSync(path.join(root, `${name}.sock`), "");
+        fs.writeFileSync(path.join(root, `${name}.pid`), String(process.pid));
+      }
+      const socketProbe = vi.fn(async () => false);
+
+      const sessions = await listSessions({ socketProbe, socketProbeBudgetMs: 20 });
+
+      expect(socketProbe).not.toHaveBeenCalled();
+      expect(sessions.map((session) => session.name)).toEqual([...names].sort());
+      expect(sessions.every((session) => session.status === "running")).toBe(true);
+    },
+  );
 });
 
 describe("fleet-wide socket fallback budget", () => {
-  it("starts every fallback concurrently but waits only one shared deadline", async () => {
+  it.each([75, 100, 500])(
+    "starts every fallback in a %i-seat fleet concurrently but waits only one shared deadline",
+    async (fleetSize) => {
+      const root = makeRoot();
+      const names = Array.from(
+        { length: fleetSize },
+        (_, i) => `unreachable-${String(fleetSize - 1 - i).padStart(3, "0")}`,
+      );
+      for (const name of names) {
+        // No pidfile: an unreadable pid plus an unreachable socket is reported
+        // defensively as running, but must not serialize timeout waits.
+        fs.writeFileSync(path.join(root, `${name}.sock`), "");
+      }
+      const socketProbe = vi.fn(() => new Promise<boolean>(() => {}));
+      const startedAt = Date.now();
+
+      const sessions = await listSessions({ socketProbe, socketProbeBudgetMs: 25 });
+      const elapsed = Date.now() - startedAt;
+
+      expect(socketProbe).toHaveBeenCalledTimes(names.length);
+      expect(elapsed).toBeLessThan(500);
+      expect(sessions.map((session) => session.name)).toEqual([...names].sort());
+      expect(sessions.every((session) => session.status === "running")).toBe(true);
+    },
+  );
+
+  it("preserves ambiguous corrupt-pid entries after the shared deadline", async () => {
     const root = makeRoot();
-    const names = Array.from({ length: 100 }, (_, i) => `unreachable-${String(99 - i).padStart(3, "0")}`);
-    for (const name of names) {
-      // No pidfile: an unreadable pid plus an unreachable socket is reported
-      // defensively as running, but must not serialize 100 timeout waits.
+    for (const [name, pid] of [
+      ["missing", undefined],
+      ["empty", ""],
+      ["corrupt", "not-a-pid"],
+    ] as const) {
       fs.writeFileSync(path.join(root, `${name}.sock`), "");
+      if (pid !== undefined) fs.writeFileSync(path.join(root, `${name}.pid`), pid);
     }
     const socketProbe = vi.fn(() => new Promise<boolean>(() => {}));
-    const startedAt = Date.now();
 
-    const sessions = await listSessions({ socketProbe, socketProbeBudgetMs: 25 });
-    const elapsed = Date.now() - startedAt;
+    const sessions = await listSessions({ socketProbe, socketProbeBudgetMs: 20 });
 
-    expect(socketProbe).toHaveBeenCalledTimes(names.length);
-    expect(elapsed).toBeLessThan(250);
-    expect(sessions.map((session) => session.name)).toEqual([...names].sort());
+    expect(socketProbe).toHaveBeenCalledTimes(3);
+    expect(sessions.map((session) => session.name)).toEqual(["corrupt", "empty", "missing"]);
+    for (const name of ["corrupt", "empty", "missing"]) {
+      expect(fs.existsSync(path.join(root, `${name}.sock`))).toBe(true);
+    }
   });
 });
