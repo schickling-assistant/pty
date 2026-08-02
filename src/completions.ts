@@ -89,6 +89,13 @@ const COMMANDS: readonly CommandSpec[] = [
       { name: "no-restart", desc: "Attach only; never prompt or restart an exited session" },
       { name: "force", desc: "Attach even from inside another pty" },
       { name: "remote", desc: "Attach a session on a fabric peer" },
+      // LIVE-MIGRATION BRIDGE arn:lmig:fractal:2026-08-02-machine-attach-v2 — DELETE at contraction — https://app.notion.com/p/Fractal-PTY-machine-attach-v2-rollout-3b0e3d41f4a381d183c4c94f3290eb07
+      {
+        name: "attach-stream-fd-v1",
+        desc: "Write framed machine events to an inherited fd",
+        argument: { _tag: "free", name: "fd" },
+      },
+      // LIVE-MIGRATION END arn:lmig:fractal:2026-08-02-machine-attach-v2
     ],
   },
   {

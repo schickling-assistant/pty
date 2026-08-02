@@ -1,11 +1,16 @@
 import * as net from "node:net";
 import * as tty from "node:tty";
+import * as fs from "node:fs";
 import { PassThrough, type Readable, type Writable } from "node:stream";
 import {
   MessageType,
   PacketReader,
+  encodeAttach,
   encodeData,
+  encodeDetach,
+  encodePacket,
   encodePeek,
+  encodeResize,
   encodeStatus,
   decodeExit,
 } from "./protocol.ts";
@@ -656,7 +661,235 @@ export interface AttachOptions {
    *  A recoverable stall keeps the socket open (no close event), so reconnect
    *  fires only on a genuine close (fabric's loud give-up), never on a stall. */
   reconnect?: (signal: AbortSignal) => Promise<net.Socket | null>;
+  // LIVE-MIGRATION BRIDGE arn:lmig:fractal:2026-08-02-machine-attach-v2 — DELETE at contraction — https://app.notion.com/p/Fractal-PTY-machine-attach-v2-rollout-3b0e3d41f4a381d183c4c94f3290eb07
+  /** Write the ordered legacy attach stream to a caller-owned inherited fd. */
+  attachStreamFdV1?: number;
+  // LIVE-MIGRATION END arn:lmig:fractal:2026-08-02-machine-attach-v2
 }
+
+// LIVE-MIGRATION BRIDGE arn:lmig:fractal:2026-08-02-machine-attach-v2 — DELETE at contraction — https://app.notion.com/p/Fractal-PTY-machine-attach-v2-rollout-3b0e3d41f4a381d183c4c94f3290eb07
+/** Validate a dedicated inherited descriptor without taking ownership of it. */
+export function validateAttachStreamFdV1(fd: number): void {
+  if (!Number.isSafeInteger(fd) || fd < 3) {
+    throw new Error(
+      `--attach-stream-fd-v1 requires a dedicated inherited file descriptor >= 3 (got ${fd})`,
+    );
+  }
+  try {
+    fs.fstatSync(fd);
+    fs.writeSync(fd, Buffer.alloc(0));
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    throw new Error(`--attach-stream-fd-v1 descriptor ${fd} is not writable: ${detail}`);
+  }
+}
+
+function attachStreamFdV1(options: AttachOptions, fd: number): void {
+  validateAttachStreamFdV1(fd);
+  const stdin = options.input ?? process.stdin;
+  const stdout = options.output ?? process.stdout;
+  const stream = fs.createWriteStream("", { fd, autoClose: false });
+  let socket = options.socket ?? net.createConnection(getSocketPath(options.name));
+  let reader = new PacketReader();
+  let initialState: "geometry" | "screen" | "ready" = "geometry";
+  let rawWasSet = false;
+  let ended = false;
+  let sessionExited = false;
+  let reconnecting = false;
+  let backpressured = false;
+  let stdinDataHandler: ((data: Buffer) => void) | null = null;
+  let stdinEndHandler: (() => void) | null = null;
+  let resizeHandler: (() => void) | null = null;
+  let reconnectController: AbortController | null = null;
+
+  const enterRawMode = () => {
+    if (stdin.isTTY && !stdin.isRaw && stdin.setRawMode) {
+      stdin.setRawMode(true);
+      rawWasSet = true;
+    }
+  };
+  const teardown = () => {
+    if (stdinDataHandler) stdin.removeListener("data", stdinDataHandler);
+    if (stdinEndHandler) stdin.removeListener("end", stdinEndHandler);
+    if (resizeHandler) stdout.removeListener("resize", resizeHandler);
+    stdinDataHandler = null;
+    stdinEndHandler = null;
+    resizeHandler = null;
+    inputPolicy.dispose();
+    reconnectController?.abort();
+    if (rawWasSet && stdin.isTTY && stdin.setRawMode) stdin.setRawMode(false);
+    try { socket.destroy(); } catch {}
+  };
+  const complete = (code: number) => {
+    if (ended) return;
+    ended = true;
+    teardown();
+    stream.end(() => options.onExit ? options.onExit(code) : process.exit(code));
+  };
+  const detach = () => {
+    if (ended) return;
+    ended = true;
+    try { stream.write(encodeDetach()); } catch {}
+    try { socket.write(encodeDetach()); } catch {}
+    teardown();
+    stream.end(() => options.onDetach?.());
+  };
+  const inputPolicy = new InteractiveInputPolicy({
+    onInput: (bytes) => {
+      try { socket.write(encodeData(bytes.toString())); } catch {}
+    },
+    onDetach: detach,
+    onError: (error) => {
+      console.error(`pty attach: ${error.message}`);
+      complete(1);
+    },
+  });
+  const normalizeLegacyDetachKey = (data: Buffer): Buffer => {
+    const value = data.toString();
+    const kitty = DETACH_KEY_KITTY.toString();
+    return value.includes(kitty)
+      ? Buffer.from(value.replaceAll(kitty, String.fromCharCode(DETACH_KEY)))
+      : data;
+  };
+  const wireInput = () => {
+    if (stdinDataHandler) return;
+    stdinDataHandler = (data: Buffer) => inputPolicy.feed(normalizeLegacyDetachKey(Buffer.from(data)));
+    stdinEndHandler = () => inputPolicy.end();
+    stdin.on("data", stdinDataHandler);
+    stdin.on("end", stdinEndHandler);
+    stdin.resume();
+    resizeHandler = () => {
+      try {
+        socket.write(encodeResize(
+          (stdout as tty.WriteStream).rows ?? 24,
+          (stdout as tty.WriteStream).columns ?? 80,
+        ));
+      } catch {}
+    };
+    stdout.on("resize", resizeHandler);
+  };
+  const onReady = () => {
+    enterRawMode();
+    try {
+      socket.write(encodeAttach(
+        (stdout as tty.WriteStream).rows ?? 24,
+        (stdout as tty.WriteStream).columns ?? 80,
+      ));
+    } catch {}
+    wireInput();
+  };
+  const fail = (message: string) => {
+    console.error(message);
+    complete(1);
+  };
+  const handleData = (data: Buffer) => {
+    let packets;
+    try {
+      packets = reader.feed(data);
+    } catch (error) {
+      fail(`pty client: dropping connection — ${(error as Error).message}`);
+      return;
+    }
+    for (const packet of packets) {
+      if (
+        packet.type !== MessageType.GEOMETRY &&
+        packet.type !== MessageType.SCREEN &&
+        packet.type !== MessageType.DATA &&
+        packet.type !== MessageType.EXIT
+      ) continue;
+      if (initialState === "geometry" && packet.type !== MessageType.GEOMETRY) {
+        fail("pty attach: daemon does not support attach stream v1 (expected GEOMETRY before terminal events)");
+        return;
+      }
+      if (
+        initialState === "screen" &&
+        packet.type !== MessageType.GEOMETRY &&
+        packet.type !== MessageType.SCREEN
+      ) {
+        const type = packet.type === MessageType.DATA ? "DATA" : "EXIT";
+        fail(`pty attach: daemon does not support attach stream v1 (expected SCREEN before ${type})`);
+        return;
+      }
+      if (initialState === "geometry" && packet.type === MessageType.GEOMETRY) {
+        initialState = "screen";
+      } else if (initialState === "screen" && packet.type === MessageType.SCREEN) {
+        initialState = "ready";
+      }
+      if (!stream.write(encodePacket(packet.type, packet.payload)) && !backpressured) {
+        backpressured = true;
+        socket.pause();
+        stream.once("drain", () => {
+          backpressured = false;
+          if (!socket.destroyed) socket.resume();
+        });
+      }
+      if (packet.type === MessageType.EXIT) {
+        sessionExited = true;
+        complete(decodeExit(packet.payload));
+        return;
+      }
+    }
+  };
+  const reconnect = async () => {
+    if (!options.reconnect || reconnecting || ended) return;
+    reconnecting = true;
+    process.stderr.write(`\r\n[reconnecting… — Ctrl-\\ or Ctrl-C to stop]\r\n`);
+    let attempt = 0;
+    reconnectController = new AbortController();
+    while (!ended) {
+      await new Promise((resolve) => setTimeout(resolve, RECONNECT_BACKOFF_MS[attempt] ?? RECONNECT_BACKOFF_CAP_MS));
+      if (ended) return;
+      let fresh: net.Socket | null;
+      try {
+        fresh = await options.reconnect(reconnectController.signal);
+      } catch {
+        fail(`[${options.name} session ended]`);
+        return;
+      }
+      if (ended) {
+        fresh?.destroy();
+        return;
+      }
+      if (fresh) {
+        socket = fresh;
+        reconnecting = false;
+        bindSocket(fresh, true);
+        return;
+      }
+      if (++attempt >= RECONNECT_MAX_ATTEMPTS) {
+        fail(`[${options.name}: connection lost — re-run \`pty attach --remote\` to reconnect]`);
+        return;
+      }
+    }
+  };
+  const disconnected = (error?: NodeJS.ErrnoException) => {
+    if (ended || reconnecting) return;
+    if (options.reconnect && !sessionExited) {
+      void reconnect();
+      return;
+    }
+    if (!sessionExited) {
+      fail(`pty attach: machine stream truncated before EXIT: ${error?.message ?? "connection closed"}`);
+    }
+  };
+  const bindSocket = (next: net.Socket, preConnected: boolean) => {
+    reader = new PacketReader();
+    initialState = "geometry";
+    if (backpressured) next.pause();
+    next.on("data", handleData);
+    next.on("error", (error: NodeJS.ErrnoException) => disconnected(error));
+    next.on("close", () => disconnected());
+    if (preConnected) process.nextTick(onReady);
+    else next.on("connect", onReady);
+  };
+
+  stream.on("error", (error) => {
+    console.error(`pty attach: machine stream descriptor ${fd} failed: ${error.message}`);
+    complete(1);
+  });
+  bindSocket(socket, !!options.socket);
+}
+// LIVE-MIGRATION END arn:lmig:fractal:2026-08-02-machine-attach-v2
 
 /** Backoff schedule for `attach --remote` reconnect attempts, then a cap. */
 const RECONNECT_BACKOFF_MS = [100, 250, 500, 1000, 2000, 5000, 10000];
@@ -672,6 +905,12 @@ const RECONNECT_MAX_ATTEMPTS = (() => {
 })();
 
 export function attach(options: AttachOptions): void {
+  // LIVE-MIGRATION BRIDGE arn:lmig:fractal:2026-08-02-machine-attach-v2 — DELETE at contraction — https://app.notion.com/p/Fractal-PTY-machine-attach-v2-rollout-3b0e3d41f4a381d183c4c94f3290eb07
+  if (options.attachStreamFdV1 !== undefined) {
+    attachStreamFdV1(options, options.attachStreamFdV1);
+    return;
+  }
+  // LIVE-MIGRATION END arn:lmig:fractal:2026-08-02-machine-attach-v2
   const stdin = options.input ?? process.stdin;
   const stdout = options.output ?? process.stdout;
   const canReconnect = !!options.reconnect;

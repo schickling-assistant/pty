@@ -141,6 +141,14 @@ the last writable-attached client leaves the last effective geometry stable.
 
 ### Machine attach
 
+<!-- LIVE-MIGRATION BRIDGE arn:lmig:fractal:2026-08-02-machine-attach-v2 — DELETE at contraction — https://app.notion.com/p/Fractal-PTY-machine-attach-v2-rollout-3b0e3d41f4a381d183c4c94f3290eb07 -->
+During the Fractal rollout only, the explicit
+`pty attach --attach-stream-fd-v1 <fd>` surface adapts the legacy `ATTACH`
+protocol into an ordered inherited-descriptor stream. It never restarts a
+session and does not change the default human attach path or the machine-v2
+target contract below.
+<!-- LIVE-MIGRATION END arn:lmig:fractal:2026-08-02-machine-attach-v2 -->
+
 `machine-attach-v2` gives stdin and stdout exclusively to a bounded framed
 protocol. It does not allocate a controlling terminal, inherit a side-channel
 descriptor, interpret an interactive detach key, or fall back to machine attach

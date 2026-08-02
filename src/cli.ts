@@ -4,7 +4,7 @@ import * as path from "node:path";
 import * as readline from "node:readline/promises";
 import { spawnSync, execFileSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { attach, peek, send, queryAttachCapability, queryStats, resolveSeqDelayMs, type AttachCapability, type StatsResult } from "./client.ts";
+import { attach, peek, send, queryAttachCapability, queryStats, resolveSeqDelayMs, validateAttachStreamFdV1, type AttachCapability, type StatsResult } from "./client.ts";
 import { printVersion } from "./version.ts";
 import { parseSeqValue } from "./keys.ts";
 import {
@@ -130,7 +130,7 @@ Examples:
   pty run -- node server.js
   pty run -d --name "API" --tag role=web --env PORT=3000 -- node server.js`,
 
-  attach: `Usage: pty attach [-r|--no-restart] [--force] [--remote <peer>] <ref>
+  attach: `Usage: pty attach [-r|--no-restart] [--force] [--remote <peer>] [--attach-stream-fd-v1 <fd>] <ref>
 
 Reconnect to a session (alias: pty a). Detach again with Ctrl+\\.
 
@@ -141,6 +141,10 @@ Flags:
   --force              Attach even from inside another pty session (nested)
   --remote <peer>      Attach a session on a fabric peer (over fabric); <ref> is
                        the session's name/id ON THE REMOTE
+  --attach-stream-fd-v1 <fd>
+                       Temporary Fractal migration bridge: write ordered framed
+                       GEOMETRY, SCREEN, DATA, and terminal EXIT or DETACH to an
+                       inherited fd (>= 3); stdin/stdout remain the controlling TTY
 
 Examples:
   pty attach myserver
@@ -964,12 +968,24 @@ async function main(): Promise<void> {
       let force = false;
       let attachName: string | null = null;
       let attachRemotePeer: string | null = null;
+      // LIVE-MIGRATION BRIDGE arn:lmig:fractal:2026-08-02-machine-attach-v2 — DELETE at contraction — https://app.notion.com/p/Fractal-PTY-machine-attach-v2-rollout-3b0e3d41f4a381d183c4c94f3290eb07
+      let attachStreamFdV1: number | undefined;
+      // LIVE-MIGRATION END arn:lmig:fractal:2026-08-02-machine-attach-v2
       for (let ai = 1; ai < args.length; ai++) {
         const a = args[ai];
         if (a === "--auto-restart" || a === "-r") autoRestart = true;
         else if (a === "--no-restart") noRestart = true;
         else if (a === "--force") force = true;
         else if (a === "--remote" && ai + 1 < args.length) { attachRemotePeer = args[++ai]; }
+        // LIVE-MIGRATION BRIDGE arn:lmig:fractal:2026-08-02-machine-attach-v2 — DELETE at contraction — https://app.notion.com/p/Fractal-PTY-machine-attach-v2-rollout-3b0e3d41f4a381d183c4c94f3290eb07
+        else if (a === "--attach-stream-fd-v1") {
+          if (ai + 1 >= args.length) {
+            console.error("pty attach: --attach-stream-fd-v1 requires a file descriptor");
+            process.exit(1);
+          }
+          attachStreamFdV1 = Number(args[++ai]);
+        }
+        // LIVE-MIGRATION END arn:lmig:fractal:2026-08-02-machine-attach-v2
         else if (!attachName) attachName = a;
         else {
           console.error(`pty attach: unexpected argument "${a}"`);
@@ -984,6 +1000,20 @@ async function main(): Promise<void> {
         console.error("pty attach: --auto-restart and --no-restart are mutually exclusive");
         process.exit(1);
       }
+      // LIVE-MIGRATION BRIDGE arn:lmig:fractal:2026-08-02-machine-attach-v2 — DELETE at contraction — https://app.notion.com/p/Fractal-PTY-machine-attach-v2-rollout-3b0e3d41f4a381d183c4c94f3290eb07
+      if (attachStreamFdV1 !== undefined) {
+        try {
+          validateAttachStreamFdV1(attachStreamFdV1);
+        } catch (error) {
+          console.error(`pty attach: ${(error as Error).message}`);
+          process.exit(1);
+        }
+        if (autoRestart) {
+          console.error("pty attach: --attach-stream-fd-v1 and --auto-restart are mutually exclusive");
+          process.exit(1);
+        }
+      }
+      // LIVE-MIGRATION END arn:lmig:fractal:2026-08-02-machine-attach-v2
       // Nesting guard runs BEFORE name validation / ref resolution. A nested
       // caller gets the informative nesting message even if they mistyped
       // the session name — otherwise they'd fix the typo, try again, and
@@ -998,12 +1028,12 @@ async function main(): Promise<void> {
       });
       if (attachRemotePeer) {
         // The name is the session's id ON THE REMOTE — don't resolve locally.
-        await cmdAttachRemote(attachRemotePeer, attachName);
+        await cmdAttachRemote(attachRemotePeer, attachName, attachStreamFdV1);
       } else {
         const resolvedAttachName = await resolveRef(attachName);
         const restartPolicy: AttachRestartPolicy =
-          noRestart ? "never" : autoRestart ? "always" : "prompt";
-        await cmdAttach(resolvedAttachName, restartPolicy, force);
+          attachStreamFdV1 !== undefined || noRestart ? "never" : autoRestart ? "always" : "prompt";
+        await cmdAttach(resolvedAttachName, restartPolicy, force, attachStreamFdV1);
       }
       break;
     }
@@ -1734,6 +1764,7 @@ async function cmdAttach(
   name: string,
   restartPolicy: AttachRestartPolicy = "prompt",
   _force = false,
+  attachStreamFdV1?: number,
 ): Promise<void> {
   // Nesting guard runs in the dispatcher (before name resolution) so the
   // user gets the nesting hint even for typo'd refs. cmdAttach itself is
@@ -1748,7 +1779,7 @@ async function cmdAttach(
   }
 
   if (session.status === "running") {
-    doAttach(name);
+    doAttach(name, attachStreamFdV1);
     return;
   }
 
@@ -1812,9 +1843,12 @@ async function handleDeadSession(
   doAttach(session.name);
 }
 
-function doAttach(name: string): void {
+function doAttach(name: string, attachStreamFdV1?: number): void {
   attach({
     name,
+    // LIVE-MIGRATION BRIDGE arn:lmig:fractal:2026-08-02-machine-attach-v2 — DELETE at contraction — https://app.notion.com/p/Fractal-PTY-machine-attach-v2-rollout-3b0e3d41f4a381d183c4c94f3290eb07
+    ...(attachStreamFdV1 !== undefined ? { attachStreamFdV1 } : {}),
+    // LIVE-MIGRATION END arn:lmig:fractal:2026-08-02-machine-attach-v2
     onDetach: () => process.exit(0),
     onExit: (code) => process.exit(code),
   });
@@ -2028,7 +2062,7 @@ async function cmdSendRemote(
 /** `pty attach --remote <peer> <name>`: dial the peer's exposed pty control
  *  socket over fabric, route it to the named remote session, and attach over
  *  that tunnel — the resilient shell is a long-lived remote pty you attach to. */
-async function cmdAttachRemote(peer: string, name: string): Promise<void> {
+async function cmdAttachRemote(peer: string, name: string, attachStreamFdV1?: number): Promise<void> {
   let routed;
   try {
     routed = await dialAndRoute(peer, name);
@@ -2040,6 +2074,9 @@ async function cmdAttachRemote(peer: string, name: string): Promise<void> {
     name,
     socket: routed.socket,
     expectedGeneration: routed.generation,
+    // LIVE-MIGRATION BRIDGE arn:lmig:fractal:2026-08-02-machine-attach-v2 — DELETE at contraction — https://app.notion.com/p/Fractal-PTY-machine-attach-v2-rollout-3b0e3d41f4a381d183c4c94f3290eb07
+    ...(attachStreamFdV1 !== undefined ? { attachStreamFdV1 } : {}),
+    // LIVE-MIGRATION END arn:lmig:fractal:2026-08-02-machine-attach-v2
     // On a loud fabric close, re-dial + re-route to the same remote session and
     // re-attach (the daemon replays its screen, so the session resumes). A
     // recoverable transport stall keeps the socket open, so it's just waited out.
