@@ -27,7 +27,7 @@ export {
 // Session interaction (CLI-oriented — uses process.stdin/stdout, may call process.exit)
 export {
   attach, peek, send, queryAttachCapability, queryStats,
-  // LIVE-MIGRATION BRIDGE arn:lmig:fractal:2026-08-02-machine-attach-v2 — DELETE at contraction — https://app.notion.com/p/Fractal-PTY-machine-attach-v2-rollout-3b0e3d41f4a381d183c4c94f3290eb07
+  // LIVE-MIGRATION BRIDGE arn:lmig:fractal:2026-08-02-machine-attach-v2 — DELETE at contraction — https://www.notion.so/3b0e3d41f4a381d183c4c94f3290eb07
   validateAttachStreamFdV1,
   // LIVE-MIGRATION END arn:lmig:fractal:2026-08-02-machine-attach-v2
   TERMINAL_SANITIZE,

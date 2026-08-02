@@ -968,7 +968,7 @@ async function main(): Promise<void> {
       let force = false;
       let attachName: string | null = null;
       let attachRemotePeer: string | null = null;
-      // LIVE-MIGRATION BRIDGE arn:lmig:fractal:2026-08-02-machine-attach-v2 — DELETE at contraction — https://app.notion.com/p/Fractal-PTY-machine-attach-v2-rollout-3b0e3d41f4a381d183c4c94f3290eb07
+      // LIVE-MIGRATION BRIDGE arn:lmig:fractal:2026-08-02-machine-attach-v2 — DELETE at contraction — https://www.notion.so/3b0e3d41f4a381d183c4c94f3290eb07
       let attachStreamFdV1: number | undefined;
       // LIVE-MIGRATION END arn:lmig:fractal:2026-08-02-machine-attach-v2
       for (let ai = 1; ai < args.length; ai++) {
@@ -977,7 +977,7 @@ async function main(): Promise<void> {
         else if (a === "--no-restart") noRestart = true;
         else if (a === "--force") force = true;
         else if (a === "--remote" && ai + 1 < args.length) { attachRemotePeer = args[++ai]; }
-        // LIVE-MIGRATION BRIDGE arn:lmig:fractal:2026-08-02-machine-attach-v2 — DELETE at contraction — https://app.notion.com/p/Fractal-PTY-machine-attach-v2-rollout-3b0e3d41f4a381d183c4c94f3290eb07
+        // LIVE-MIGRATION BRIDGE arn:lmig:fractal:2026-08-02-machine-attach-v2 — DELETE at contraction — https://www.notion.so/3b0e3d41f4a381d183c4c94f3290eb07
         else if (a === "--attach-stream-fd-v1") {
           if (ai + 1 >= args.length) {
             console.error("pty attach: --attach-stream-fd-v1 requires a file descriptor");
@@ -1000,7 +1000,7 @@ async function main(): Promise<void> {
         console.error("pty attach: --auto-restart and --no-restart are mutually exclusive");
         process.exit(1);
       }
-      // LIVE-MIGRATION BRIDGE arn:lmig:fractal:2026-08-02-machine-attach-v2 — DELETE at contraction — https://app.notion.com/p/Fractal-PTY-machine-attach-v2-rollout-3b0e3d41f4a381d183c4c94f3290eb07
+      // LIVE-MIGRATION BRIDGE arn:lmig:fractal:2026-08-02-machine-attach-v2 — DELETE at contraction — https://www.notion.so/3b0e3d41f4a381d183c4c94f3290eb07
       if (attachStreamFdV1 !== undefined) {
         try {
           validateAttachStreamFdV1(attachStreamFdV1);
@@ -1846,7 +1846,7 @@ async function handleDeadSession(
 function doAttach(name: string, attachStreamFdV1?: number): void {
   attach({
     name,
-    // LIVE-MIGRATION BRIDGE arn:lmig:fractal:2026-08-02-machine-attach-v2 — DELETE at contraction — https://app.notion.com/p/Fractal-PTY-machine-attach-v2-rollout-3b0e3d41f4a381d183c4c94f3290eb07
+    // LIVE-MIGRATION BRIDGE arn:lmig:fractal:2026-08-02-machine-attach-v2 — DELETE at contraction — https://www.notion.so/3b0e3d41f4a381d183c4c94f3290eb07
     ...(attachStreamFdV1 !== undefined ? { attachStreamFdV1 } : {}),
     // LIVE-MIGRATION END arn:lmig:fractal:2026-08-02-machine-attach-v2
     onDetach: () => process.exit(0),
@@ -2074,7 +2074,7 @@ async function cmdAttachRemote(peer: string, name: string, attachStreamFdV1?: nu
     name,
     socket: routed.socket,
     expectedGeneration: routed.generation,
-    // LIVE-MIGRATION BRIDGE arn:lmig:fractal:2026-08-02-machine-attach-v2 — DELETE at contraction — https://app.notion.com/p/Fractal-PTY-machine-attach-v2-rollout-3b0e3d41f4a381d183c4c94f3290eb07
+    // LIVE-MIGRATION BRIDGE arn:lmig:fractal:2026-08-02-machine-attach-v2 — DELETE at contraction — https://www.notion.so/3b0e3d41f4a381d183c4c94f3290eb07
     ...(attachStreamFdV1 !== undefined ? { attachStreamFdV1 } : {}),
     // LIVE-MIGRATION END arn:lmig:fractal:2026-08-02-machine-attach-v2
     // On a loud fabric close, re-dial + re-route to the same remote session and

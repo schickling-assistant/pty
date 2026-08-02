@@ -661,13 +661,13 @@ export interface AttachOptions {
    *  A recoverable stall keeps the socket open (no close event), so reconnect
    *  fires only on a genuine close (fabric's loud give-up), never on a stall. */
   reconnect?: (signal: AbortSignal) => Promise<net.Socket | null>;
-  // LIVE-MIGRATION BRIDGE arn:lmig:fractal:2026-08-02-machine-attach-v2 — DELETE at contraction — https://app.notion.com/p/Fractal-PTY-machine-attach-v2-rollout-3b0e3d41f4a381d183c4c94f3290eb07
+  // LIVE-MIGRATION BRIDGE arn:lmig:fractal:2026-08-02-machine-attach-v2 — DELETE at contraction — https://www.notion.so/3b0e3d41f4a381d183c4c94f3290eb07
   /** Write the ordered legacy attach stream to a caller-owned inherited fd. */
   attachStreamFdV1?: number;
   // LIVE-MIGRATION END arn:lmig:fractal:2026-08-02-machine-attach-v2
 }
 
-// LIVE-MIGRATION BRIDGE arn:lmig:fractal:2026-08-02-machine-attach-v2 — DELETE at contraction — https://app.notion.com/p/Fractal-PTY-machine-attach-v2-rollout-3b0e3d41f4a381d183c4c94f3290eb07
+// LIVE-MIGRATION BRIDGE arn:lmig:fractal:2026-08-02-machine-attach-v2 — DELETE at contraction — https://www.notion.so/3b0e3d41f4a381d183c4c94f3290eb07
 /** Validate a dedicated inherited descriptor without taking ownership of it. */
 export function validateAttachStreamFdV1(fd: number): void {
   if (!Number.isSafeInteger(fd) || fd < 3) {
@@ -905,7 +905,7 @@ const RECONNECT_MAX_ATTEMPTS = (() => {
 })();
 
 export function attach(options: AttachOptions): void {
-  // LIVE-MIGRATION BRIDGE arn:lmig:fractal:2026-08-02-machine-attach-v2 — DELETE at contraction — https://app.notion.com/p/Fractal-PTY-machine-attach-v2-rollout-3b0e3d41f4a381d183c4c94f3290eb07
+  // LIVE-MIGRATION BRIDGE arn:lmig:fractal:2026-08-02-machine-attach-v2 — DELETE at contraction — https://www.notion.so/3b0e3d41f4a381d183c4c94f3290eb07
   if (options.attachStreamFdV1 !== undefined) {
     attachStreamFdV1(options, options.attachStreamFdV1);
     return;

@@ -79,7 +79,7 @@ describe("pty completions <shell>", () => {
     }
   });
 
-  // LIVE-MIGRATION BRIDGE arn:lmig:fractal:2026-08-02-machine-attach-v2 — DELETE at contraction — https://app.notion.com/p/Fractal-PTY-machine-attach-v2-rollout-3b0e3d41f4a381d183c4c94f3290eb07
+  // LIVE-MIGRATION BRIDGE arn:lmig:fractal:2026-08-02-machine-attach-v2 — DELETE at contraction — https://www.notion.so/3b0e3d41f4a381d183c4c94f3290eb07
   it("models --attach-stream-fd-v1 as consuming a required free-form value", () => {
     expect(gen("fish")).toContain("-l attach-stream-fd-v1 -x ");
     expect(gen("bash")).toContain('"${prev}" == "--attach-stream-fd-v1"');
