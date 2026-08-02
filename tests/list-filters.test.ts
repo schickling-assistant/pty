@@ -128,6 +128,7 @@ describe("vanished status", () => {
     expect(found).toBeDefined();
     expect(found.status).toBe("vanished");
     expect(found.generation).toBeNull();
+    expect(found.attach).toBeNull();
     expect(found.exitCode).toBeNull();
     expect(found.exitedAt).toBeNull();
   }, 10000);
@@ -141,6 +142,30 @@ describe("vanished status", () => {
     expect(r.status).toBe(0);
     expect(r.stdout).toContain("Vanished sessions");
     expect(r.stdout).toContain(name);
+  }, 10000);
+
+  it("does not trust a persisted attach claim without a live daemon", () => {
+    const dir = makeSessionDir();
+    const name = uniqueName();
+    fs.writeFileSync(path.join(dir, `${name}.json`), JSON.stringify({
+      command: "cat",
+      args: [],
+      displayCommand: "cat",
+      cwd: os.tmpdir(),
+      createdAt: new Date().toISOString(),
+      generation: "persisted-generation",
+      attach: {
+        protocol: "machine-v2",
+        generation: "persisted-generation",
+        capabilities: ["framed-utf8-input"],
+      },
+    }));
+
+    const r = runCli(dir, "list", "--json");
+    expect(r.status).toBe(0);
+    const found = JSON.parse(r.stdout).find((s: any) => s.name === name);
+    expect(found.generation).toBe("persisted-generation");
+    expect(found.attach).toBeNull();
   }, 10000);
 
   it("cleanly-exited sessions keep status=exited, not vanished", async () => {

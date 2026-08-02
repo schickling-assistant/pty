@@ -304,6 +304,33 @@ never interpreted as a generation.
 Status reports client roles, requested/effective geometry, process resources,
 and terminal modes.
 
+JSON status and inventory expose generation-bound writable-attach support as
+(R07, R09, R11):
+
+```ts
+type AttachCapability = {
+  protocol: "machine-v2"
+  generation: string
+  capabilities: MachineCapability[]
+}
+
+type InventoryAttach = AttachCapability | null
+```
+
+The live daemon emits `AttachCapability` from its in-memory generation and the
+same capability set used for admission. Local and remote inventory obtain it
+from live status, never from metadata, tags, CLI version, record shape, or a
+separate version probe. Inventory emits `null` for a non-running or unreachable
+session and when an older daemon does not advertise attach support; `null` means
+unproven support, not implicit legacy compatibility.
+
+A machine host may attempt `OPEN` only when the inventory row has a non-null
+generation, `attach.protocol` is `"machine-v2"`, `attach.generation` equals the
+row generation, and every required capability is present. This inventory gate
+does not replace same-connection admission: `OPEN` still binds the exact id,
+generation, and required capabilities atomically before any attach mutation
+(R07, R08).
+
 Metadata and events form two compatibility tiers (R10):
 
 | Record | Contract |

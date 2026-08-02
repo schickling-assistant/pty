@@ -42,6 +42,15 @@ export type MachineCapability =
   | "input-mode-snapshot"
   | "host-terminal-replay";
 
+/** Capabilities implemented by this daemon generation. This is the single
+ * source for admission and live capability advertisement. */
+export const MACHINE_CAPABILITIES = [
+  "framed-utf8-input",
+  "typed-outcome",
+  "input-mode-snapshot",
+  "host-terminal-replay",
+] as const satisfies readonly MachineCapability[];
+
 export interface MachineOpenV2 {
   readonly _tag: "Open";
   readonly protocol: typeof MACHINE_PROTOCOL_VERSION;
@@ -241,12 +250,7 @@ function boolean(value: unknown, name: string): boolean {
   return value;
 }
 
-const CAPABILITIES = new Set<MachineCapability>([
-  "framed-utf8-input",
-  "typed-outcome",
-  "input-mode-snapshot",
-  "host-terminal-replay",
-]);
+const CAPABILITIES = new Set<MachineCapability>(MACHINE_CAPABILITIES);
 
 function capabilities(value: unknown): MachineCapability[] {
   if (!Array.isArray(value) || value.length > MAX_CAPABILITIES) {

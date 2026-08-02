@@ -96,6 +96,16 @@ describe("pty ls --remote over fabric", () => {
     const demo = out.remote[0].sessions.find((s: { name: string }) => s.name === "demo");
     expect(demo.status).toBe("running");
     expect(demo.generation).toEqual(expect.any(String));
+    expect(demo.attach).toEqual({
+      protocol: "machine-v2",
+      generation: demo.generation,
+      capabilities: [
+        "framed-utf8-input",
+        "typed-outcome",
+        "input-mode-snapshot",
+        "host-terminal-replay",
+      ],
+    });
     expect(demo.command).toBe("sleep 300");
     expect(demo.displayName).toBe("Demo Session");
   }, 20000);

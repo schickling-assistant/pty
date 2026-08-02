@@ -4,7 +4,7 @@ import * as path from "node:path";
 import * as readline from "node:readline/promises";
 import { spawnSync, execFileSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { attach, peek, send, queryStats, resolveSeqDelayMs, type StatsResult } from "./client.ts";
+import { attach, peek, send, queryAttachCapability, queryStats, resolveSeqDelayMs, type AttachCapability, type StatsResult } from "./client.ts";
 import { printVersion } from "./version.ts";
 import { parseSeqValue } from "./keys.ts";
 import {
@@ -2170,6 +2170,8 @@ async function cmdList(opts: ListOptions = {}): Promise<void> {
     label: string;
     sessions: {
       name: string;
+      generation?: string | null;
+      attach?: AttachCapability | null;
       status: string;
       command?: string;
       cwd?: string;
@@ -2247,7 +2249,10 @@ async function cmdList(opts: ListOptions = {}): Promise<void> {
       console.log(JSON.stringify(buildSummary()));
       return;
     }
-    const localOutput = sessions.map((s) => ({
+    const attachCapabilities = await Promise.all(sessions.map((s) =>
+      s.status === "running" ? queryAttachCapability(s.name) : Promise.resolve(null)
+    ));
+    const localOutput = sessions.map((s, index) => ({
       name: s.name,
       status: s.status,
       pid: s.pid,
@@ -2256,6 +2261,7 @@ async function cmdList(opts: ListOptions = {}): Promise<void> {
         : null,
       cwd: s.metadata?.cwd ?? null,
       generation: s.metadata?.generation ?? null,
+      attach: attachCapabilities[index],
       createdAt: s.metadata?.createdAt ?? null,
       exitCode: s.metadata?.exitCode ?? null,
       exitedAt: s.metadata?.exitedAt ?? null,

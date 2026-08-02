@@ -132,6 +132,27 @@ describe("session tags", () => {
     expect(stats.generation).toBe(session.generation);
     expect(session.generation).not.toBe(session.createdAt);
     expect(stats.generation).not.toBe(stats.createdAt);
+    const expectedAttach = {
+      protocol: "machine-v2",
+      generation: metadata.generation,
+      capabilities: [
+        "framed-utf8-input",
+        "typed-outcome",
+        "input-mode-snapshot",
+        "host-terminal-replay",
+      ],
+    };
+    expect(stats.attach).toEqual(expectedAttach);
+    expect(session.attach).toEqual(expectedAttach);
+
+    fs.writeFileSync(path.join(dir, `${name}.json`), JSON.stringify({
+      ...metadata,
+      generation: "stale-metadata-generation",
+    }));
+    const staleRow = JSON.parse(runCli(dir, "list", "--json"))
+      .find((row: any) => row.name === name);
+    expect(staleRow.generation).toBe("stale-metadata-generation");
+    expect(staleRow.attach).toEqual(expectedAttach);
   }, 15000);
 
   it("pty list --filter-tag filters JSON output to matching sessions", async () => {

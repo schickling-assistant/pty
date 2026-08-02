@@ -26,10 +26,10 @@ export {
 
 // Session interaction (CLI-oriented — uses process.stdin/stdout, may call process.exit)
 export {
-  attach, peek, send, queryStats,
+  attach, peek, send, queryAttachCapability, queryStats,
   TERMINAL_SANITIZE,
   type AttachOptions, type PeekOptions, type SendOptions,
-  type StatsResult, type ProcessResources,
+  type AttachCapability, type StatsResult, type ProcessResources,
 } from "./client.ts";
 
 // Events
@@ -73,6 +73,7 @@ export {
 } from "./machine-attach.ts";
 export {
   MACHINE_PROTOCOL_VERSION,
+  MACHINE_CAPABILITIES,
   MachineFrameReader,
   decodeMachineRequest,
   decodeMachineResponse,
@@ -82,4 +83,5 @@ export {
   type MachineRequest,
   type MachineResponse,
   type MachineOutcome,
+  type MachineCapability,
 } from "./machine-protocol.ts";

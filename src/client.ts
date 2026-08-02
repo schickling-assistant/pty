@@ -19,6 +19,7 @@ import {
   decodeMachineResponse,
   encodeMachineRequest,
   type MachineInputModeSnapshotV1,
+  type MachineCapability,
   type MachineResponse,
 } from "./machine-protocol.ts";
 
@@ -509,9 +510,19 @@ export interface ProcessResources {
   cpuPercent: number;
 }
 
+/** Live, generation-bound writable-attach support advertised by the daemon.
+ * Absence is never inferred as legacy support: callers must fail closed. */
+export interface AttachCapability {
+  protocol: "machine-v2";
+  generation: string;
+  capabilities: readonly MachineCapability[];
+}
+
 export interface StatsResult {
   name: string;
   generation: string;
+  /** Absent only when querying a daemon that predates capability advertisement. */
+  attach?: AttachCapability;
   terminal: {
     cols: number;
     rows: number;
@@ -556,6 +567,20 @@ export interface StatsResult {
   };
   uptimeSeconds: number | null;
   createdAt: string | null;
+}
+
+/** Query the daemon rather than metadata for generation-bound attach support.
+ * Old or unreachable daemons return null so callers can gate migration without
+ * version inference or mutable tags. */
+export async function queryAttachCapability(
+  name: string,
+  timeoutMs = 2000,
+): Promise<AttachCapability | null> {
+  try {
+    return (await queryStats(name, timeoutMs)).attach ?? null;
+  } catch {
+    return null;
+  }
 }
 
 /** Query live stats from a running session. */

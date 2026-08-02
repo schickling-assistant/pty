@@ -23,13 +23,13 @@ import {
 } from "./protocol.ts";
 import {
   DaemonExtensionType,
+  MACHINE_CAPABILITIES,
   MACHINE_PROTOCOL_VERSION,
   canonicalizeMachineInputModeSnapshotV1,
   decodeDaemonOpenV2,
   decodeMachineRequest,
   encodeDaemonAdmissionV2,
   encodeMachineResponse,
-  type MachineCapability,
   type MachineInputModeSnapshotV1,
   type MachineResponse,
 } from "./machine-protocol.ts";
@@ -270,12 +270,6 @@ interface TerminalInputModeState {
   readonly kittyKeyboardFlags: readonly number[];
 }
 
-const MACHINE_CAPABILITIES = [
-  "framed-utf8-input",
-  "typed-outcome",
-  "input-mode-snapshot",
-  "host-terminal-replay",
-] as const satisfies readonly MachineCapability[];
 const MAX_KITTY_KEYBOARD_STACK_DEPTH = 64;
 
 export interface ServerOptions {
@@ -1771,6 +1765,11 @@ export class PtyServer {
     return {
       name: this.name,
       generation: this.generation,
+      attach: {
+        protocol: "machine-v2",
+        generation: this.generation,
+        capabilities: MACHINE_CAPABILITIES,
+      },
       terminal: {
         cols: this.terminal.cols,
         rows: this.terminal.rows,

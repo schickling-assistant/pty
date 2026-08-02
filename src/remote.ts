@@ -3,6 +3,7 @@ import * as fs from "node:fs";
 import { execFile } from "node:child_process";
 import type { Readable, Writable } from "node:stream";
 import { listSessions, getSession, getSocketPath, type SessionInfo } from "./sessions.ts";
+import { queryAttachCapability, type AttachCapability } from "./client.ts";
 
 /** ALPN / fabric service name under which pty exposes its remote-access control
  *  protocol. `fabric expose pty-remote --exec -- pty remote-serve --stdio` on the
@@ -21,6 +22,7 @@ export const FABRIC_BIN = process.env.PTY_FABRIC_BIN ?? "fabric";
 export interface RemoteSessionRow {
   name: string;
   generation: string | null;
+  attach: AttachCapability | null;
   status: string;
   command?: string;
   cwd?: string;
@@ -62,11 +64,12 @@ export class RouteRefusedError extends Error {
   }
 }
 
-function toRow(s: SessionInfo): RemoteSessionRow {
+async function toRow(s: SessionInfo): Promise<RemoteSessionRow> {
   const m = s.metadata;
   return {
     name: s.name,
     generation: m?.generation ?? null,
+    attach: s.status === "running" ? await queryAttachCapability(s.name) : null,
     status: s.status,
     ...(m?.displayCommand ? { command: m.displayCommand } : {}),
     ...(m?.cwd ? { cwd: m.cwd } : {}),
@@ -121,7 +124,8 @@ export function handleRemoteConnection(input: Readable, output: Writable, done: 
     }
     if (req.op === "list") {
       try {
-        writeLine(JSON.stringify({ sessions: (await listSessions()).map(toRow) }));
+        const listed = await listSessions();
+        writeLine(JSON.stringify({ sessions: await Promise.all(listed.map(toRow)) }));
       } catch (e) {
         writeLine(JSON.stringify({ error: (e as Error).message }));
       }
@@ -337,7 +341,10 @@ export function fetchRemoteList(socketPath: string, timeoutMs = 10000): Promise<
           reject(new Error(resp.error));
           return;
         }
-        resolve(resp.sessions ?? []);
+        resolve((resp.sessions ?? []).map((row) => ({
+          ...row,
+          attach: row.attach ?? null,
+        })));
       } catch (e) {
         reject(new Error(`bad remote response: ${(e as Error).message}`));
       }
